@@ -8,11 +8,12 @@ typedef struct s_reader
 	int			fd;
 	char		*bytes;
 	size_t		begin;
+	size_t		scan;
 	size_t		end;
 	size_t		capacity;
 }t_reader;
 
-static t_reader	g_reader = {-1, NULL, 0, 0, 0};
+static t_reader	g_reader = {-1, NULL, 0, 0, 0, 0};
 
 static void	copy_bytes(char *destination, const char *source, size_t length)
 {
@@ -32,6 +33,7 @@ static void	reset_reader(void)
 	g_reader.fd = -1;
 	g_reader.bytes = NULL;
 	g_reader.begin = 0;
+	g_reader.scan = 0;
 	g_reader.end = 0;
 	g_reader.capacity = 0;
 }
@@ -47,6 +49,7 @@ static void	compact_bytes(void)
 
 	length = unread_length();
 	copy_bytes(g_reader.bytes, g_reader.bytes + g_reader.begin, length);
+	g_reader.scan -= g_reader.begin;
 	g_reader.begin = 0;
 	g_reader.end = length;
 	g_reader.bytes[g_reader.end] = '\0';
@@ -92,6 +95,7 @@ static int	reserve_bytes(size_t appended)
 	free(g_reader.bytes);
 	g_reader.bytes = allocation;
 	g_reader.begin = 0;
+	g_reader.scan = length;
 	g_reader.end = length;
 	g_reader.capacity = capacity;
 	g_reader.bytes[g_reader.end] = '\0';
@@ -108,6 +112,48 @@ static int	append_bytes(const char *bytes, size_t length)
 	return (1);
 }
 
+static size_t	find_line_end(void)
+{
+	while (g_reader.scan < g_reader.end)
+	{
+		if (g_reader.bytes[g_reader.scan] == '\n')
+		{
+			g_reader.scan++;
+			return (g_reader.scan);
+		}
+		g_reader.scan++;
+	}
+	return (0);
+}
+
+static char	*extract_line(size_t line_end)
+{
+	char	*line;
+	size_t	length;
+
+	length = line_end - g_reader.begin;
+	line = malloc(length + 1);
+	if (line == NULL)
+	{
+		reset_reader();
+		return (NULL);
+	}
+	copy_bytes(line, g_reader.bytes + g_reader.begin, length);
+	line[length] = '\0';
+	g_reader.begin = line_end;
+	g_reader.scan = g_reader.begin;
+	if (g_reader.begin == g_reader.end)
+	{
+		free(g_reader.bytes);
+		g_reader.bytes = NULL;
+		g_reader.begin = 0;
+		g_reader.scan = 0;
+		g_reader.end = 0;
+		g_reader.capacity = 0;
+	}
+	return (line);
+}
+
 static char	*release_final_line(void)
 {
 	char	*line;
@@ -121,6 +167,7 @@ static char	*release_final_line(void)
 	g_reader.fd = -1;
 	g_reader.bytes = NULL;
 	g_reader.begin = 0;
+	g_reader.scan = 0;
 	g_reader.end = 0;
 	g_reader.capacity = 0;
 	return (line);
@@ -130,6 +177,7 @@ char	*get_next_line(int fd)
 {
 	char	buffer[BUFFER_SIZE];
 	ssize_t	read_size;
+	size_t	line_end;
 
 	if (fd < 0 || read(fd, buffer, 0) < 0)
 	{
@@ -142,6 +190,9 @@ char	*get_next_line(int fd)
 		reset_reader();
 		g_reader.fd = fd;
 	}
+	line_end = find_line_end();
+	if (line_end != 0)
+		return (extract_line(line_end));
 	read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
 	while (read_size > 0)
 	{
@@ -150,6 +201,9 @@ char	*get_next_line(int fd)
 			reset_reader();
 			return (NULL);
 		}
+		line_end = find_line_end();
+		if (line_end != 0)
+			return (extract_line(line_end));
 		read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
 	}
 	if (read_size < 0)
