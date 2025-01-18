@@ -114,10 +114,72 @@ static void	test_invalid_descriptors(void)
 	CHECK(get_next_line(fds[0]) == NULL);
 }
 
+static void	test_newline_and_remainder(void)
+{
+	const char	*expected[3];
+	char			*line;
+	int				fd;
+	size_t			index;
+
+	expected[0] = "one\n";
+	expected[1] = "second\n";
+	expected[2] = "third";
+	fd = reader_for("one\nsecond\nthird", 16);
+	CHECK(fd >= 0);
+	if (fd < 0)
+		return ;
+	index = 0;
+	while (index < 3)
+	{
+		line = get_next_line(fd);
+		CHECK(line != NULL);
+		if (line != NULL)
+		{
+			CHECK(strcmp(line, expected[index]) == 0);
+			free(line);
+		}
+		index++;
+	}
+	CHECK(get_next_line(fd) == NULL);
+	close(fd);
+}
+
+static void	test_empty_lines(void)
+{
+	const char	*expected[3];
+	char			*line;
+	int				fd;
+	size_t			index;
+
+	expected[0] = "\n";
+	expected[1] = "\n";
+	expected[2] = "x\n";
+	fd = reader_for("\n\nx\n", 4);
+	CHECK(fd >= 0);
+	if (fd < 0)
+		return ;
+	index = 0;
+	while (index < 3)
+	{
+		line = get_next_line(fd);
+		CHECK(line != NULL);
+		if (line != NULL)
+		{
+			CHECK(strcmp(line, expected[index]) == 0);
+			free(line);
+		}
+		index++;
+	}
+	CHECK(get_next_line(fd) == NULL);
+	close(fd);
+}
+
 void	test_reader(void)
 {
 	test_empty_input();
 	test_final_line();
 	test_multiple_chunks();
 	test_invalid_descriptors();
+	test_newline_and_remainder();
+	test_empty_lines();
 }
