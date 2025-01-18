@@ -7,11 +7,12 @@ typedef struct s_reader
 {
 	int			fd;
 	char		*bytes;
-	size_t		length;
+	size_t		begin;
+	size_t		end;
 	size_t		capacity;
 }t_reader;
 
-static t_reader	g_reader = {-1, NULL, 0, 0};
+static t_reader	g_reader = {-1, NULL, 0, 0, 0};
 
 static void	copy_bytes(char *destination, const char *source, size_t length)
 {
@@ -30,15 +31,45 @@ static void	reset_reader(void)
 	free(g_reader.bytes);
 	g_reader.fd = -1;
 	g_reader.bytes = NULL;
-	g_reader.length = 0;
+	g_reader.begin = 0;
+	g_reader.end = 0;
 	g_reader.capacity = 0;
 }
 
-static int	reserve_bytes(size_t required)
+static size_t	unread_length(void)
+{
+	return (g_reader.end - g_reader.begin);
+}
+
+static void	compact_bytes(void)
+{
+	size_t	length;
+
+	length = unread_length();
+	copy_bytes(g_reader.bytes, g_reader.bytes + g_reader.begin, length);
+	g_reader.begin = 0;
+	g_reader.end = length;
+	g_reader.bytes[g_reader.end] = '\0';
+}
+
+static int	reserve_bytes(size_t appended)
 {
 	char	*allocation;
 	size_t	capacity;
+	size_t	required;
+	size_t	length;
 
+	length = unread_length();
+	if (appended > (size_t)-1 - length - 1)
+		return (0);
+	required = length + appended + 1;
+	if (g_reader.capacity - g_reader.end >= appended + 1)
+		return (1);
+	if (g_reader.begin > 0 && required <= g_reader.capacity)
+	{
+		compact_bytes();
+		return (1);
+	}
 	if (required <= g_reader.capacity)
 		return (1);
 	capacity = g_reader.capacity;
@@ -56,36 +87,41 @@ static int	reserve_bytes(size_t required)
 	allocation = malloc(capacity);
 	if (allocation == NULL)
 		return (0);
-	copy_bytes(allocation, g_reader.bytes, g_reader.length);
+	if (length > 0)
+		copy_bytes(allocation, g_reader.bytes + g_reader.begin, length);
 	free(g_reader.bytes);
 	g_reader.bytes = allocation;
+	g_reader.begin = 0;
+	g_reader.end = length;
 	g_reader.capacity = capacity;
+	g_reader.bytes[g_reader.end] = '\0';
 	return (1);
 }
 
 static int	append_bytes(const char *bytes, size_t length)
 {
-	size_t	required;
-
-	if (length > (size_t)-1 - g_reader.length - 1)
+	if (!reserve_bytes(length))
 		return (0);
-	required = g_reader.length + length + 1;
-	if (!reserve_bytes(required))
-		return (0);
-	copy_bytes(g_reader.bytes + g_reader.length, bytes, length);
-	g_reader.length += length;
-	g_reader.bytes[g_reader.length] = '\0';
+	copy_bytes(g_reader.bytes + g_reader.end, bytes, length);
+	g_reader.end += length;
+	g_reader.bytes[g_reader.end] = '\0';
 	return (1);
 }
 
 static char	*release_final_line(void)
 {
 	char	*line;
+	size_t	length;
 
+	length = unread_length();
+	if (g_reader.begin > 0)
+		copy_bytes(g_reader.bytes, g_reader.bytes + g_reader.begin, length);
+	g_reader.bytes[length] = '\0';
 	line = g_reader.bytes;
 	g_reader.fd = -1;
 	g_reader.bytes = NULL;
-	g_reader.length = 0;
+	g_reader.begin = 0;
+	g_reader.end = 0;
 	g_reader.capacity = 0;
 	return (line);
 }
@@ -121,7 +157,7 @@ char	*get_next_line(int fd)
 		reset_reader();
 		return (NULL);
 	}
-	if (g_reader.length == 0)
+	if (unread_length() == 0)
 	{
 		reset_reader();
 		return (NULL);
