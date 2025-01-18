@@ -27,55 +27,55 @@ static void	copy_bytes(char *destination, const char *source, size_t length)
 	}
 }
 
-static void	reset_reader(void)
+static void	reset_reader(t_reader *reader)
 {
-	free(g_reader.bytes);
-	g_reader.fd = -1;
-	g_reader.bytes = NULL;
-	g_reader.begin = 0;
-	g_reader.scan = 0;
-	g_reader.end = 0;
-	g_reader.capacity = 0;
+	free(reader->bytes);
+	reader->fd = -1;
+	reader->bytes = NULL;
+	reader->begin = 0;
+	reader->scan = 0;
+	reader->end = 0;
+	reader->capacity = 0;
 }
 
-static size_t	unread_length(void)
+static size_t	unread_length(const t_reader *reader)
 {
-	return (g_reader.end - g_reader.begin);
+	return (reader->end - reader->begin);
 }
 
-static void	compact_bytes(void)
+static void	compact_bytes(t_reader *reader)
 {
 	size_t	length;
 
-	length = unread_length();
-	copy_bytes(g_reader.bytes, g_reader.bytes + g_reader.begin, length);
-	g_reader.scan -= g_reader.begin;
-	g_reader.begin = 0;
-	g_reader.end = length;
-	g_reader.bytes[g_reader.end] = '\0';
+	length = unread_length(reader);
+	copy_bytes(reader->bytes, reader->bytes + reader->begin, length);
+	reader->scan -= reader->begin;
+	reader->begin = 0;
+	reader->end = length;
+	reader->bytes[reader->end] = '\0';
 }
 
-static int	reserve_bytes(size_t appended)
+static int	reserve_bytes(t_reader *reader, size_t appended)
 {
 	char	*allocation;
 	size_t	capacity;
 	size_t	required;
 	size_t	length;
 
-	length = unread_length();
+	length = unread_length(reader);
 	if (appended > (size_t)-1 - length - 1)
 		return (0);
 	required = length + appended + 1;
-	if (g_reader.capacity - g_reader.end >= appended + 1)
+	if (reader->capacity - reader->end >= appended + 1)
 		return (1);
-	if (g_reader.begin > 0 && required <= g_reader.capacity)
+	if (reader->begin > 0 && required <= reader->capacity)
 	{
-		compact_bytes();
+		compact_bytes(reader);
 		return (1);
 	}
-	if (required <= g_reader.capacity)
+	if (required <= reader->capacity)
 		return (1);
-	capacity = g_reader.capacity;
+	capacity = reader->capacity;
 	if (capacity == 0)
 		capacity = 1;
 	while (capacity < required)
@@ -91,85 +91,85 @@ static int	reserve_bytes(size_t appended)
 	if (allocation == NULL)
 		return (0);
 	if (length > 0)
-		copy_bytes(allocation, g_reader.bytes + g_reader.begin, length);
-	free(g_reader.bytes);
-	g_reader.bytes = allocation;
-	g_reader.begin = 0;
-	g_reader.scan = length;
-	g_reader.end = length;
-	g_reader.capacity = capacity;
-	g_reader.bytes[g_reader.end] = '\0';
+		copy_bytes(allocation, reader->bytes + reader->begin, length);
+	free(reader->bytes);
+	reader->bytes = allocation;
+	reader->begin = 0;
+	reader->scan = length;
+	reader->end = length;
+	reader->capacity = capacity;
+	reader->bytes[reader->end] = '\0';
 	return (1);
 }
 
-static int	append_bytes(const char *bytes, size_t length)
+static int	append_bytes(t_reader *reader, const char *bytes, size_t length)
 {
-	if (!reserve_bytes(length))
+	if (!reserve_bytes(reader, length))
 		return (0);
-	copy_bytes(g_reader.bytes + g_reader.end, bytes, length);
-	g_reader.end += length;
-	g_reader.bytes[g_reader.end] = '\0';
+	copy_bytes(reader->bytes + reader->end, bytes, length);
+	reader->end += length;
+	reader->bytes[reader->end] = '\0';
 	return (1);
 }
 
-static size_t	find_line_end(void)
+static size_t	find_line_end(t_reader *reader)
 {
-	while (g_reader.scan < g_reader.end)
+	while (reader->scan < reader->end)
 	{
-		if (g_reader.bytes[g_reader.scan] == '\n')
+		if (reader->bytes[reader->scan] == '\n')
 		{
-			g_reader.scan++;
-			return (g_reader.scan);
+			reader->scan++;
+			return (reader->scan);
 		}
-		g_reader.scan++;
+		reader->scan++;
 	}
 	return (0);
 }
 
-static char	*extract_line(size_t line_end)
+static char	*extract_line(t_reader *reader, size_t line_end)
 {
 	char	*line;
 	size_t	length;
 
-	length = line_end - g_reader.begin;
+	length = line_end - reader->begin;
 	line = malloc(length + 1);
 	if (line == NULL)
 	{
-		reset_reader();
+		reset_reader(reader);
 		return (NULL);
 	}
-	copy_bytes(line, g_reader.bytes + g_reader.begin, length);
+	copy_bytes(line, reader->bytes + reader->begin, length);
 	line[length] = '\0';
-	g_reader.begin = line_end;
-	g_reader.scan = g_reader.begin;
-	if (g_reader.begin == g_reader.end)
+	reader->begin = line_end;
+	reader->scan = reader->begin;
+	if (reader->begin == reader->end)
 	{
-		free(g_reader.bytes);
-		g_reader.bytes = NULL;
-		g_reader.begin = 0;
-		g_reader.scan = 0;
-		g_reader.end = 0;
-		g_reader.capacity = 0;
+		free(reader->bytes);
+		reader->bytes = NULL;
+		reader->begin = 0;
+		reader->scan = 0;
+		reader->end = 0;
+		reader->capacity = 0;
 	}
 	return (line);
 }
 
-static char	*release_final_line(void)
+static char	*release_final_line(t_reader *reader)
 {
 	char	*line;
 	size_t	length;
 
-	length = unread_length();
-	if (g_reader.begin > 0)
-		copy_bytes(g_reader.bytes, g_reader.bytes + g_reader.begin, length);
-	g_reader.bytes[length] = '\0';
-	line = g_reader.bytes;
-	g_reader.fd = -1;
-	g_reader.bytes = NULL;
-	g_reader.begin = 0;
-	g_reader.scan = 0;
-	g_reader.end = 0;
-	g_reader.capacity = 0;
+	length = unread_length(reader);
+	if (reader->begin > 0)
+		copy_bytes(reader->bytes, reader->bytes + reader->begin, length);
+	reader->bytes[length] = '\0';
+	line = reader->bytes;
+	reader->fd = -1;
+	reader->bytes = NULL;
+	reader->begin = 0;
+	reader->scan = 0;
+	reader->end = 0;
+	reader->capacity = 0;
 	return (line);
 }
 
@@ -178,43 +178,45 @@ char	*get_next_line(int fd)
 	char	buffer[BUFFER_SIZE];
 	ssize_t	read_size;
 	size_t	line_end;
+	t_reader	*reader;
 
+	reader = &g_reader;
 	if (fd < 0 || read(fd, buffer, 0) < 0)
 	{
-		if (fd == g_reader.fd)
-			reset_reader();
+		if (fd == reader->fd)
+			reset_reader(reader);
 		return (NULL);
 	}
-	if (g_reader.fd != fd)
+	if (reader->fd != fd)
 	{
-		reset_reader();
-		g_reader.fd = fd;
+		reset_reader(reader);
+		reader->fd = fd;
 	}
-	line_end = find_line_end();
+	line_end = find_line_end(reader);
 	if (line_end != 0)
-		return (extract_line(line_end));
+		return (extract_line(reader, line_end));
 	read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
 	while (read_size > 0)
 	{
-		if (!append_bytes(buffer, (size_t)read_size))
+		if (!append_bytes(reader, buffer, (size_t)read_size))
 		{
-			reset_reader();
+			reset_reader(reader);
 			return (NULL);
 		}
-		line_end = find_line_end();
+		line_end = find_line_end(reader);
 		if (line_end != 0)
-			return (extract_line(line_end));
+			return (extract_line(reader, line_end));
 		read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
 	}
 	if (read_size < 0)
 	{
-		reset_reader();
+		reset_reader(reader);
 		return (NULL);
 	}
-	if (unread_length() == 0)
+	if (unread_length(reader) == 0)
 	{
-		reset_reader();
+		reset_reader(reader);
 		return (NULL);
 	}
-	return (release_final_line());
+	return (release_final_line(reader));
 }
