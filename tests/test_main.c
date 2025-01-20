@@ -31,5 +31,6 @@ int	test_finish(void)
 int	main(void)
 {
 	test_reader();
+	test_boundaries();
 	return (test_finish());
 }

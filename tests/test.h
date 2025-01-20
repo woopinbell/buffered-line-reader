@@ -7,6 +7,7 @@ void	test_check(int condition, const char *expression, const char *file,
 			int line);
 int		test_finish(void);
 void	test_reader(void);
+void	test_boundaries(void);
 
 # define CHECK(condition) \
 	test_check((condition), #condition, __FILE__, __LINE__)

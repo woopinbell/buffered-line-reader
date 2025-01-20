@@ -18,7 +18,7 @@ OBJ := $(SRC:%.c=$(OBJ_DIR)/%.o)
 DEP := $(OBJ:.o=.d)
 
 TEST_BIN := tests/bin/test_reader_$(BUFFER_SIZE)
-TEST_SRC := tests/test_main.c tests/test_reader.c
+TEST_SRC := tests/test_main.c tests/test_reader.c tests/test_boundaries.c
 MATRIX_SIZES := 1 2 42 1024
 
 FAULT_OBJ_DIR := build/fault/$(BUFFER_SIZE)
@@ -31,7 +31,7 @@ FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
 FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
 FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
 
-.PHONY: all bonus clean fclean re test failure-run failure-test check
+.PHONY: all bonus clean fclean re test-run test failure-run failure-test check
 
 all: $(NAME)
 
@@ -44,12 +44,17 @@ $(OBJ_DIR)/%.o: %.c get_next_line.h
 	@$(MKDIR) $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(TEST_BIN): $(NAME) $(TEST_SRC) tests/test.h
+$(TEST_BIN): $(OBJ) $(TEST_SRC) tests/test.h
 	@$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEST_SRC) $(NAME) -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEST_SRC) $(OBJ) -o $@
 
-test: $(TEST_BIN)
+test-run: $(TEST_BIN)
 	./$(TEST_BIN)
+
+test:
+	@set -e; for size in $(MATRIX_SIZES); do \
+		$(MAKE) --no-print-directory test-run BUFFER_SIZE=$$size; \
+	done
 
 $(FAULT_READER_OBJ): get_next_line.c get_next_line.h
 	@$(MKDIR) $(dir $@)
