@@ -241,6 +241,47 @@ static void	test_invalid_fd_preserves_other_state(void)
 	close(fd);
 }
 
+static void	test_write_only_descriptor(void)
+{
+	int	fds[2];
+
+	if (pipe(fds) != 0)
+	{
+		CHECK(0);
+		return ;
+	}
+	CHECK(get_next_line(fds[1]) == NULL);
+	CHECK(write(fds[1], "x", 1) == 1);
+	close(fds[0]);
+	close(fds[1]);
+}
+
+static void	test_closed_reader_cleanup_is_local(void)
+{
+	char	*line;
+	int		closed;
+	int		kept;
+
+	closed = reader_for("first\ndiscarded", 15);
+	kept = reader_for("keep\nsurvive", 12);
+	CHECK(closed >= 0 && kept >= 0);
+	if (closed < 0 || kept < 0)
+		return ;
+	line = get_next_line(closed);
+	CHECK(line != NULL && strcmp(line, "first\n") == 0);
+	free(line);
+	line = get_next_line(kept);
+	CHECK(line != NULL && strcmp(line, "keep\n") == 0);
+	free(line);
+	close(closed);
+	CHECK(get_next_line(closed) == NULL);
+	line = get_next_line(kept);
+	CHECK(line != NULL && strcmp(line, "survive") == 0);
+	free(line);
+	CHECK(get_next_line(kept) == NULL);
+	close(kept);
+}
+
 void	test_reader(void)
 {
 	test_empty_input();
@@ -251,4 +292,6 @@ void	test_reader(void)
 	test_empty_lines();
 	test_alternating_descriptors();
 	test_invalid_fd_preserves_other_state();
+	test_write_only_descriptor();
+	test_closed_reader_cleanup_is_local();
 }
