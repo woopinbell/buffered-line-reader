@@ -19,8 +19,19 @@ DEP := $(OBJ:.o=.d)
 
 TEST_BIN := tests/bin/test_reader_$(BUFFER_SIZE)
 TEST_SRC := tests/test_main.c tests/test_reader.c
+MATRIX_SIZES := 1 2 42 1024
 
-.PHONY: all bonus clean fclean re test check
+FAULT_OBJ_DIR := build/fault/$(BUFFER_SIZE)
+FAULT_READER_OBJ := $(FAULT_OBJ_DIR)/get_next_line.o
+FAULT_RUNTIME_OBJ := $(FAULT_OBJ_DIR)/fault_runtime.o
+FAULT_TEST_OBJ := $(FAULT_OBJ_DIR)/test_failure.o
+FAULT_OBJ := $(FAULT_READER_OBJ) $(FAULT_RUNTIME_OBJ) $(FAULT_TEST_OBJ)
+FAULT_DEP := $(FAULT_OBJ:.o=.d)
+FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
+FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
+FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
+
+.PHONY: all bonus clean fclean re test failure-run failure-test check
 
 all: $(NAME)
 
@@ -40,11 +51,39 @@ $(TEST_BIN): $(NAME) $(TEST_SRC) tests/test.h
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
+$(FAULT_READER_OBJ): get_next_line.c get_next_line.h
+	@$(MKDIR) $(dir $@)
+	$(CC) $(FAULT_CPPFLAGS) $(FAULT_DEFINES) $(CFLAGS) $(DEPFLAGS) \
+		-c $< -o $@
+
+$(FAULT_RUNTIME_OBJ): tests/support/fault_runtime.c \
+		tests/support/fault_runtime.h
+	@$(MKDIR) $(dir $@)
+	$(CC) $(FAULT_CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(FAULT_TEST_OBJ): tests/failure/test_failure.c get_next_line.h \
+		tests/support/fault_runtime.h
+	@$(MKDIR) $(dir $@)
+	$(CC) $(FAULT_CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(FAULT_BIN): $(FAULT_OBJ)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CFLAGS) $(FAULT_OBJ) -o $@
+
+failure-run: $(FAULT_BIN)
+	./$(FAULT_BIN)
+
+failure-test:
+	@set -e; for size in $(MATRIX_SIZES); do \
+		$(MAKE) --no-print-directory failure-run BUFFER_SIZE=$$size; \
+	done
+
 check:
 	git diff --check
 	$(MAKE) fclean
 	$(MAKE) all
 	$(MAKE) test
+	$(MAKE) failure-test
 	$(MAKE) -q all
 
 clean:
@@ -55,4 +94,4 @@ fclean: clean
 
 re: fclean all
 
--include $(DEP)
+-include $(DEP) $(FAULT_DEP)
