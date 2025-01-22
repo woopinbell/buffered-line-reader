@@ -32,7 +32,7 @@ FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
 FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
 
 .PHONY: all bonus clean fclean re test-run test failure-run failure-test \
-	check-buffer-size check
+	check-archive check-buffer-size check
 
 all: $(NAME)
 
@@ -84,6 +84,9 @@ failure-test:
 		$(MAKE) --no-print-directory failure-run BUFFER_SIZE=$$size; \
 	done
 
+check-archive: $(NAME)
+	sh tests/check_archive.sh $(NAME)
+
 check-buffer-size:
 	@! $(CC) -I. -DBUFFER_SIZE=0 $(CFLAGS) -fsyntax-only get_next_line.c \
 		>/dev/null 2>&1
@@ -96,6 +99,7 @@ check:
 	$(MAKE) fclean
 	$(MAKE) all
 	$(MAKE) check-buffer-size
+	$(MAKE) check-archive
 	$(MAKE) test
 	$(MAKE) failure-test
 	$(MAKE) -q all
