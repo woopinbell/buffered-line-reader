@@ -30,9 +30,10 @@ FAULT_DEP := $(FAULT_OBJ:.o=.d)
 FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
 FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
 FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
+SMOKE_BIN := tests/bin/consumer
 
 .PHONY: all bonus clean fclean re test-run test failure-run failure-test \
-	check-archive check-buffer-size check
+	check-archive check-consumer check-buffer-size check
 
 all: $(NAME)
 
@@ -87,6 +88,13 @@ failure-test:
 check-archive: $(NAME)
 	sh tests/check_archive.sh $(NAME)
 
+$(SMOKE_BIN): tests/smoke/consumer.c get_next_line.h $(NAME)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/smoke/consumer.c $(NAME) -o $@
+
+check-consumer: $(SMOKE_BIN)
+	./$(SMOKE_BIN)
+
 check-buffer-size:
 	@! $(CC) -I. -DBUFFER_SIZE=0 $(CFLAGS) -fsyntax-only get_next_line.c \
 		>/dev/null 2>&1
@@ -100,6 +108,7 @@ check:
 	$(MAKE) all
 	$(MAKE) check-buffer-size
 	$(MAKE) check-archive
+	$(MAKE) check-consumer
 	$(MAKE) test
 	$(MAKE) failure-test
 	$(MAKE) -q all
