@@ -30,10 +30,13 @@ FAULT_DEP := $(FAULT_OBJ:.o=.d)
 FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
 FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
 FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
+UBSAN_FLAGS := -fsanitize=undefined -fno-sanitize-recover=all
+UBSAN_BIN := tests/bin/test_ubsan_$(BUFFER_SIZE)
 SMOKE_BIN := tests/bin/consumer
 
 .PHONY: all bonus clean fclean re test-run test failure-run failure-test \
-	check-archive check-consumer check-buffer-size check
+	ubsan-run ubsan sanitize leak-run leak check-archive check-consumer \
+	check-buffer-size check
 
 all: $(NAME)
 
@@ -85,6 +88,37 @@ failure-test:
 		$(MAKE) --no-print-directory failure-run BUFFER_SIZE=$$size; \
 	done
 
+$(UBSAN_BIN): $(SRC) $(TEST_SRC) get_next_line.h tests/test.h
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(UBSAN_FLAGS) $(SRC) $(TEST_SRC) -o $@
+
+ubsan-run: $(UBSAN_BIN)
+	./$(UBSAN_BIN)
+
+ubsan:
+	@set -e; for size in $(MATRIX_SIZES); do \
+		$(MAKE) --no-print-directory ubsan-run BUFFER_SIZE=$$size; \
+	done
+
+sanitize: ubsan
+
+leak-run: $(TEST_BIN)
+	@if [ "$$(uname -s)" = Darwin ] && [ "$(RUN_LEAKS)" != 1 ]; then \
+		echo "leaks execution skipped on Darwin (set RUN_LEAKS=1 to force)"; \
+	elif command -v leaks >/dev/null 2>&1; then \
+		leaks --atExit -- ./$(TEST_BIN); \
+	elif command -v valgrind >/dev/null 2>&1; then \
+		valgrind --quiet --leak-check=full --errors-for-leak-kinds=all \
+			--error-exitcode=1 ./$(TEST_BIN); \
+	else \
+		echo "leak check skipped: install leaks or valgrind"; \
+	fi
+
+leak:
+	@set -e; for size in $(MATRIX_SIZES); do \
+		$(MAKE) --no-print-directory leak-run BUFFER_SIZE=$$size; \
+	done
+
 check-archive: $(NAME)
 	sh tests/check_archive.sh $(NAME)
 
@@ -111,6 +145,8 @@ check:
 	$(MAKE) check-consumer
 	$(MAKE) test
 	$(MAKE) failure-test
+	$(MAKE) sanitize
+	$(MAKE) leak
 	$(MAKE) -q all
 
 clean:
