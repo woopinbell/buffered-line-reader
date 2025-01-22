@@ -134,16 +134,6 @@ static int	reserve_bytes(t_reader *reader, size_t appended)
 	return (1);
 }
 
-static int	append_bytes(t_reader *reader, const char *bytes, size_t length)
-{
-	if (!reserve_bytes(reader, length))
-		return (0);
-	copy_bytes(reader->bytes + reader->end, bytes, length);
-	reader->end += length;
-	reader->bytes[reader->end] = '\0';
-	return (1);
-}
-
 static size_t	find_line_end(t_reader *reader)
 {
 	while (reader->scan < reader->end)
@@ -196,12 +186,12 @@ static char	*release_final_line(t_reader *reader)
 
 char	*get_next_line(int fd)
 {
-	char	buffer[BUFFER_SIZE];
+	char		probe;
 	ssize_t	read_size;
 	size_t	line_end;
 	t_reader	*reader;
 
-	if (fd < 0 || read(fd, buffer, 0) < 0)
+	if (fd < 0 || read(fd, &probe, 0) < 0)
 	{
 		reader = find_reader(fd);
 		if (reader != NULL)
@@ -216,18 +206,22 @@ char	*get_next_line(int fd)
 	line_end = find_line_end(reader);
 	if (line_end != 0)
 		return (extract_line(reader, line_end));
-	read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
-	while (read_size > 0)
+	while (1)
 	{
-		if (!append_bytes(reader, buffer, (size_t)read_size))
+		if (!reserve_bytes(reader, (size_t)BUFFER_SIZE))
 		{
 			discard_reader(reader);
 			return (NULL);
 		}
+		read_size = read(fd, reader->bytes + reader->end,
+				(size_t)BUFFER_SIZE);
+		if (read_size <= 0)
+			break ;
+		reader->end += (size_t)read_size;
+		reader->bytes[reader->end] = '\0';
 		line_end = find_line_end(reader);
 		if (line_end != 0)
 			return (extract_line(reader, line_end));
-		read_size = read(fd, buffer, (size_t)BUFFER_SIZE);
 	}
 	if (read_size < 0)
 	{
