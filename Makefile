@@ -31,7 +31,8 @@ FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
 FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
 FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
 
-.PHONY: all bonus clean fclean re test-run test failure-run failure-test check
+.PHONY: all bonus clean fclean re test-run test failure-run failure-test \
+	check-buffer-size check
 
 all: $(NAME)
 
@@ -83,10 +84,18 @@ failure-test:
 		$(MAKE) --no-print-directory failure-run BUFFER_SIZE=$$size; \
 	done
 
+check-buffer-size:
+	@! $(CC) -I. -DBUFFER_SIZE=0 $(CFLAGS) -fsyntax-only get_next_line.c \
+		>/dev/null 2>&1
+	@! $(CC) -I. -DBUFFER_SIZE=-1 $(CFLAGS) -fsyntax-only get_next_line.c \
+		>/dev/null 2>&1
+	@$(CC) -I. -DBUFFER_SIZE=1 $(CFLAGS) -fsyntax-only get_next_line.c
+
 check:
 	git diff --check
 	$(MAKE) fclean
 	$(MAKE) all
+	$(MAKE) check-buffer-size
 	$(MAKE) test
 	$(MAKE) failure-test
 	$(MAKE) -q all
