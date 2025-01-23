@@ -18,7 +18,8 @@ OBJ := $(SRC:%.c=$(OBJ_DIR)/%.o)
 DEP := $(OBJ:.o=.d)
 
 TEST_BIN := tests/bin/test_reader_$(BUFFER_SIZE)
-TEST_SRC := tests/test_main.c tests/test_reader.c tests/test_boundaries.c
+TEST_SRC := tests/test_main.c tests/test_reader.c tests/test_boundaries.c \
+	tests/test_context.c
 MATRIX_SIZES := 1 2 42 1024
 
 FAULT_OBJ_DIR := build/fault/$(BUFFER_SIZE)
