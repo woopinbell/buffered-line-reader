@@ -193,30 +193,13 @@ static char	*extract_line(t_blr_reader *reader, size_t line_end)
 	line = malloc(length + 1);
 	if (line == NULL)
 	{
-		discard_legacy_reader(reader);
+		reader->scan = reader->begin;
 		return (NULL);
 	}
 	copy_bytes(line, reader->bytes + reader->begin, length);
 	line[length] = '\0';
 	reader->begin = line_end;
 	reader->scan = reader->begin;
-	if (reader->begin == reader->end)
-		discard_legacy_reader(reader);
-	return (line);
-}
-
-static char	*release_final_line(t_blr_reader *reader)
-{
-	char	*line;
-	size_t	length;
-
-	length = unread_length(reader);
-	if (reader->begin > 0)
-		copy_bytes(reader->bytes, reader->bytes + reader->begin, length);
-	reader->bytes[length] = '\0';
-	line = reader->bytes;
-	reader->bytes = NULL;
-	discard_legacy_reader(reader);
 	return (line);
 }
 
@@ -225,7 +208,6 @@ t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
 	char		probe;
 	ssize_t	read_size;
 	size_t	line_end;
-	size_t	length;
 
 	if (line != NULL)
 		*line = NULL;
@@ -234,78 +216,27 @@ t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
 	if (read(reader->fd, &probe, 0) < 0)
 		return (BLR_ERROR);
 	line_end = find_line_end(reader);
-	if (line_end == 0 && reader->reached_eof)
+	if (line_end != 0)
+	{
+		*line = extract_line(reader, line_end);
+		if (*line == NULL)
+			return (BLR_ERROR);
+		return (BLR_LINE);
+	}
+	if (reader->reached_eof)
 	{
 		if (unread_length(reader) == 0)
 			return (BLR_EOF);
-		line_end = reader->end;
+		*line = extract_line(reader, reader->end);
+		if (*line == NULL)
+			return (BLR_ERROR);
+		return (BLR_LINE);
 	}
-	while (line_end == 0 && !reader->reached_eof)
+	while (1)
 	{
 		if (!reserve_bytes(reader, (size_t)BUFFER_SIZE))
 			return (BLR_ERROR);
 		read_size = read(reader->fd, reader->bytes + reader->end,
-				(size_t)BUFFER_SIZE);
-		if (read_size < 0)
-			return (BLR_ERROR);
-		if (read_size == 0)
-		{
-			reader->reached_eof = 1;
-			if (unread_length(reader) == 0)
-				return (BLR_EOF);
-			line_end = reader->end;
-		}
-		else
-		{
-			reader->end += (size_t)read_size;
-			reader->bytes[reader->end] = '\0';
-			line_end = find_line_end(reader);
-		}
-	}
-	length = line_end - reader->begin;
-	*line = malloc(length + 1);
-	if (*line == NULL)
-	{
-		reader->scan = reader->begin;
-		return (BLR_ERROR);
-	}
-	copy_bytes(*line, reader->bytes + reader->begin, length);
-	(*line)[length] = '\0';
-	reader->begin = line_end;
-	reader->scan = reader->begin;
-	return (BLR_LINE);
-}
-
-char	*get_next_line(int fd)
-{
-	char		probe;
-	ssize_t	read_size;
-	size_t	line_end;
-	t_blr_reader	*reader;
-
-	if (fd < 0 || read(fd, &probe, 0) < 0)
-	{
-		reader = find_reader(fd);
-		if (reader != NULL)
-			discard_legacy_reader(reader);
-		return (NULL);
-	}
-	reader = find_reader(fd);
-	if (reader == NULL)
-		reader = create_legacy_reader(fd);
-	if (reader == NULL)
-		return (NULL);
-	line_end = find_line_end(reader);
-	if (line_end != 0)
-		return (extract_line(reader, line_end));
-	while (1)
-	{
-		if (!reserve_bytes(reader, (size_t)BUFFER_SIZE))
-		{
-			discard_legacy_reader(reader);
-			return (NULL);
-		}
-		read_size = read(fd, reader->bytes + reader->end,
 				(size_t)BUFFER_SIZE);
 		if (read_size <= 0)
 			break ;
@@ -313,17 +244,38 @@ char	*get_next_line(int fd)
 		reader->bytes[reader->end] = '\0';
 		line_end = find_line_end(reader);
 		if (line_end != 0)
-			return (extract_line(reader, line_end));
+		{
+			*line = extract_line(reader, line_end);
+			if (*line == NULL)
+				return (BLR_ERROR);
+			return (BLR_LINE);
+		}
 	}
 	if (read_size < 0)
-	{
-		discard_legacy_reader(reader);
-		return (NULL);
-	}
+		return (BLR_ERROR);
+	reader->reached_eof = 1;
 	if (unread_length(reader) == 0)
-	{
-		discard_legacy_reader(reader);
+		return (BLR_EOF);
+	*line = extract_line(reader, reader->end);
+	if (*line == NULL)
+		return (BLR_ERROR);
+	return (BLR_LINE);
+}
+
+char	*get_next_line(int fd)
+{
+	char			*line;
+	t_blr_reader	*reader;
+	t_blr_result	result;
+
+	reader = find_reader(fd);
+	if (reader == NULL)
+		reader = create_legacy_reader(fd);
+	if (reader == NULL)
 		return (NULL);
-	}
-	return (release_final_line(reader));
+	result = blr_reader_next(reader, &line);
+	if (result == BLR_LINE)
+		return (line);
+	discard_legacy_reader(reader);
+	return (NULL);
 }
