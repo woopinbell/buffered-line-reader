@@ -1,1 +1,4 @@
+blr_reader_create
+blr_reader_destroy
+blr_reader_reset
 get_next_line
