@@ -11,6 +11,7 @@ struct s_blr_reader
 	size_t		scan;
 	size_t		end;
 	size_t		capacity;
+	int			reached_eof;
 	t_blr_reader	*next;
 };
 
@@ -54,6 +55,7 @@ t_blr_reader	*blr_reader_create(int fd)
 	reader->scan = 0;
 	reader->end = 0;
 	reader->capacity = 0;
+	reader->reached_eof = 0;
 	reader->next = NULL;
 	return (reader);
 }
@@ -68,6 +70,7 @@ void	blr_reader_reset(t_blr_reader *reader)
 	reader->scan = 0;
 	reader->end = 0;
 	reader->capacity = 0;
+	reader->reached_eof = 0;
 }
 
 void	blr_reader_destroy(t_blr_reader *reader)
@@ -215,6 +218,62 @@ static char	*release_final_line(t_blr_reader *reader)
 	reader->bytes = NULL;
 	discard_legacy_reader(reader);
 	return (line);
+}
+
+t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
+{
+	char		probe;
+	ssize_t	read_size;
+	size_t	line_end;
+	size_t	length;
+
+	if (line != NULL)
+		*line = NULL;
+	if (reader == NULL || line == NULL)
+		return (BLR_ERROR);
+	if (read(reader->fd, &probe, 0) < 0)
+		return (BLR_ERROR);
+	line_end = find_line_end(reader);
+	if (line_end == 0 && reader->reached_eof)
+	{
+		if (unread_length(reader) == 0)
+			return (BLR_EOF);
+		line_end = reader->end;
+	}
+	while (line_end == 0 && !reader->reached_eof)
+	{
+		if (!reserve_bytes(reader, (size_t)BUFFER_SIZE))
+			return (BLR_ERROR);
+		read_size = read(reader->fd, reader->bytes + reader->end,
+				(size_t)BUFFER_SIZE);
+		if (read_size < 0)
+			return (BLR_ERROR);
+		if (read_size == 0)
+		{
+			reader->reached_eof = 1;
+			if (unread_length(reader) == 0)
+				return (BLR_EOF);
+			line_end = reader->end;
+		}
+		else
+		{
+			reader->end += (size_t)read_size;
+			reader->bytes[reader->end] = '\0';
+			line_end = find_line_end(reader);
+		}
+	}
+	length = line_end - reader->begin;
+	*line = malloc(length + 1);
+	if (*line == NULL)
+	{
+		reader->scan = reader->begin;
+		return (BLR_ERROR);
+	}
+	copy_bytes(*line, reader->bytes + reader->begin, length);
+	(*line)[length] = '\0';
+	reader->begin = line_end;
+	reader->scan = reader->begin;
+	return (BLR_LINE);
 }
 
 char	*get_next_line(int fd)
