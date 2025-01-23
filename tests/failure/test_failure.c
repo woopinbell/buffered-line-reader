@@ -211,6 +211,99 @@ static void	test_free_guards(void)
 	check_clean_runtime();
 }
 
+static void	test_context_retries_line_allocation(void)
+{
+	char			*line;
+	int				fd;
+	t_blr_reader	*reader;
+
+	fault_runtime_reset();
+	fd = reader_for("\n");
+	CHECK(fd >= 0);
+	if (fd < 0)
+		return ;
+	reader = blr_reader_create(fd);
+	CHECK(reader != NULL);
+	if (reader == NULL)
+	{
+		close(fd);
+		return ;
+	}
+	fault_allocation_fail_at(3);
+	line = (char *)reader;
+	CHECK(blr_reader_next(reader, &line) == BLR_ERROR);
+	CHECK(line == NULL);
+	CHECK(fault_allocation_failed());
+	fault_allocation_fail_at(0);
+	CHECK(blr_reader_next(reader, &line) == BLR_LINE);
+	CHECK(line != NULL && strcmp(line, "\n") == 0);
+	test_free(line);
+	CHECK(blr_reader_next(reader, &line) == BLR_EOF);
+	CHECK(line == NULL);
+	blr_reader_destroy(reader);
+	close(fd);
+	check_clean_runtime();
+}
+
+static size_t	consume_context_tail(size_t fail_at, int *failed)
+{
+	char			*line;
+	int				fd;
+	int				seen;
+	size_t			attempts;
+	t_blr_reader	*reader;
+	t_blr_result	result;
+
+	fault_runtime_reset();
+	fault_allocation_fail_at(fail_at);
+	fd = reader_for("tail");
+	CHECK(fd >= 0);
+	if (fd < 0)
+		return (0);
+	reader = blr_reader_create(fd);
+	seen = 0;
+	result = BLR_ERROR;
+	while (reader != NULL && result != BLR_EOF)
+	{
+		result = blr_reader_next(reader, &line);
+		if (result == BLR_ERROR && fault_allocation_failed())
+			fault_allocation_fail_at(0);
+		else if (result == BLR_LINE)
+		{
+			CHECK(!seen);
+			CHECK(line != NULL && strcmp(line, "tail") == 0);
+			seen = 1;
+			test_free(line);
+		}
+	}
+	CHECK(reader != NULL);
+	CHECK(seen);
+	attempts = fault_allocation_attempts();
+	*failed = fault_allocation_failed();
+	blr_reader_destroy(reader);
+	close(fd);
+	check_clean_runtime();
+	return (attempts);
+}
+
+static void	test_context_retries_final_line_allocation(void)
+{
+	int		failed;
+	size_t	baseline;
+	size_t	index;
+
+	baseline = consume_context_tail(0, &failed);
+	CHECK(!failed);
+	CHECK(baseline > 0);
+	index = 2;
+	while (index <= baseline)
+	{
+		consume_context_tail(index, &failed);
+		CHECK(failed);
+		index++;
+	}
+}
+
 int	main(void)
 {
 	test_allocation_failures();
@@ -218,6 +311,8 @@ int	main(void)
 	test_first_read_error();
 	test_middle_read_error();
 	test_one_fd_failure_preserves_another();
+	test_context_retries_line_allocation();
+	test_context_retries_final_line_allocation();
 	test_free_guards();
 	if (g_failures != 0)
 	{
