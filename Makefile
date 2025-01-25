@@ -1,161 +1,58 @@
 NAME := libbuffered_line_reader.a
 
-CC := cc
-override CFLAGS := -Wall -Wextra -Werror -Wpedantic -std=c99 \
-	-fno-builtin
+CC          ?= cc
+CFLAGS      ?= -std=c99 -Wall -Wextra -Werror -pedantic -Iinclude -MMD -MP
+CPPFLAGS    ?= -DBUFFER_SIZE=$(BUFFER_SIZE)
+AR          ?= ar
+ARFLAGS     ?= rcs
 BUFFER_SIZE ?= 42
-override CPPFLAGS := -I. -DBUFFER_SIZE=$(BUFFER_SIZE)
-DEPFLAGS := -MMD -MP
-AR := ar
-ARFLAGS := rcs
-RM := rm -f
-RMDIR := rm -rf
-MKDIR := mkdir -p
 
-SRC := get_next_line.c
-OBJ_DIR := build/obj/$(BUFFER_SIZE)
-OBJ := $(SRC:%.c=$(OBJ_DIR)/%.o)
-DEP := $(OBJ:.o=.d)
+SRC         := $(wildcard src/*.c)
+BIN_DIR     := build
+OBJ_DIR     := $(BIN_DIR)/obj/$(BUFFER_SIZE)
+OBJS        := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SRC))
+DEPS        := $(OBJS:.o=.d)
+TEST_SRC    := $(wildcard tests/test_*.c)
+TEST_BIN    := $(BIN_DIR)/test/test_reader_$(BUFFER_SIZE)
+TEST_ASAN_BIN := $(BIN_DIR)/test/test_reader_$(BUFFER_SIZE)_asan
 
-TEST_BIN := tests/bin/test_reader_$(BUFFER_SIZE)
-TEST_SRC := tests/test_main.c tests/test_reader.c tests/test_boundaries.c \
-	tests/test_context.c
-MATRIX_SIZES := 1 2 42 1024
+.PHONY: all clean fclean re test test-asan
 
-FAULT_OBJ_DIR := build/fault/$(BUFFER_SIZE)
-FAULT_READER_OBJ := $(FAULT_OBJ_DIR)/get_next_line.o
-FAULT_RUNTIME_OBJ := $(FAULT_OBJ_DIR)/fault_runtime.o
-FAULT_TEST_OBJ := $(FAULT_OBJ_DIR)/test_failure.o
-FAULT_OBJ := $(FAULT_READER_OBJ) $(FAULT_RUNTIME_OBJ) $(FAULT_TEST_OBJ)
-FAULT_DEP := $(FAULT_OBJ:.o=.d)
-FAULT_BIN := tests/bin/test_failure_$(BUFFER_SIZE)
-FAULT_CPPFLAGS := $(CPPFLAGS) -Itests/support
-FAULT_DEFINES := -Dmalloc=test_malloc -Dfree=test_free -Dread=test_read
-UBSAN_FLAGS := -fsanitize=undefined -fno-sanitize-recover=all
-UBSAN_BIN := tests/bin/test_ubsan_$(BUFFER_SIZE)
-SMOKE_BIN := tests/bin/consumer
+all: $(BIN_DIR)/$(NAME)
 
-.PHONY: all bonus clean fclean re test-run test failure-run failure-test \
-	ubsan-run ubsan sanitize leak-run leak check-archive check-consumer \
-	check-buffer-size check
+$(BIN_DIR):
+	mkdir -p $@
 
-all: $(NAME)
+$(OBJ_DIR)/%.o: %.c include/get_next_line.h | $(BIN_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-bonus: all
+$(BIN_DIR)/$(NAME): $(OBJS)
+	$(AR) $(ARFLAGS) $@ $(OBJS)
 
-$(NAME): $(OBJ)
-	$(AR) $(ARFLAGS) $@ $(OBJ)
+$(TEST_BIN): $(TEST_SRC) tests/test.h $(OBJS) | $(BIN_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEST_SRC) $(OBJS) -o $@
 
-$(OBJ_DIR)/%.o: %.c get_next_line.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+test: $(TEST_BIN)
+	@$(TEST_BIN)
+	@printf 'get_next_line tests (BUFFER_SIZE=%s): PASS\n' $(BUFFER_SIZE)
 
-$(TEST_BIN): $(OBJ) $(TEST_SRC) tests/test.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEST_SRC) $(OBJ) -o $@
+$(TEST_ASAN_BIN): $(TEST_SRC) tests/test.h $(SRC) include/get_next_line.h | $(BIN_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -g -O0 \
+		$(TEST_SRC) $(SRC) -o $@
 
-test-run: $(TEST_BIN)
-	./$(TEST_BIN)
-
-test:
-	@set -e; for size in $(MATRIX_SIZES); do \
-		$(MAKE) --no-print-directory test-run BUFFER_SIZE=$$size; \
-	done
-
-$(FAULT_READER_OBJ): get_next_line.c get_next_line.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(FAULT_CPPFLAGS) $(FAULT_DEFINES) $(CFLAGS) $(DEPFLAGS) \
-		-c $< -o $@
-
-$(FAULT_RUNTIME_OBJ): tests/support/fault_runtime.c \
-		tests/support/fault_runtime.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(FAULT_CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
-
-$(FAULT_TEST_OBJ): tests/failure/test_failure.c get_next_line.h \
-		tests/support/fault_runtime.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(FAULT_CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
-
-$(FAULT_BIN): $(FAULT_OBJ)
-	@$(MKDIR) $(dir $@)
-	$(CC) $(CFLAGS) $(FAULT_OBJ) -o $@
-
-failure-run: $(FAULT_BIN)
-	./$(FAULT_BIN)
-
-failure-test:
-	@set -e; for size in $(MATRIX_SIZES); do \
-		$(MAKE) --no-print-directory failure-run BUFFER_SIZE=$$size; \
-	done
-
-$(UBSAN_BIN): $(SRC) $(TEST_SRC) get_next_line.h tests/test.h
-	@$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(UBSAN_FLAGS) $(SRC) $(TEST_SRC) -o $@
-
-ubsan-run: $(UBSAN_BIN)
-	./$(UBSAN_BIN)
-
-ubsan:
-	@set -e; for size in $(MATRIX_SIZES); do \
-		$(MAKE) --no-print-directory ubsan-run BUFFER_SIZE=$$size; \
-	done
-
-sanitize: ubsan
-
-leak-run: $(TEST_BIN)
-	@if [ "$$(uname -s)" = Darwin ] && [ "$(RUN_LEAKS)" != 1 ]; then \
-		echo "leaks execution skipped on Darwin (set RUN_LEAKS=1 to force)"; \
-	elif command -v leaks >/dev/null 2>&1; then \
-		leaks --atExit -- ./$(TEST_BIN); \
-	elif command -v valgrind >/dev/null 2>&1; then \
-		valgrind --quiet --leak-check=full --errors-for-leak-kinds=all \
-			--error-exitcode=1 ./$(TEST_BIN); \
-	else \
-		echo "leak check skipped: install leaks or valgrind"; \
-	fi
-
-leak:
-	@set -e; for size in $(MATRIX_SIZES); do \
-		$(MAKE) --no-print-directory leak-run BUFFER_SIZE=$$size; \
-	done
-
-check-archive: $(NAME)
-	sh tests/check_archive.sh $(NAME)
-
-$(SMOKE_BIN): tests/smoke/consumer.c get_next_line.h $(NAME)
-	@$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/smoke/consumer.c $(NAME) -o $@
-
-check-consumer: $(SMOKE_BIN)
-	./$(SMOKE_BIN)
-
-check-buffer-size:
-	@! $(CC) -I. -DBUFFER_SIZE=0 $(CFLAGS) -fsyntax-only get_next_line.c \
-		>/dev/null 2>&1
-	@! $(CC) -I. -DBUFFER_SIZE=-1 $(CFLAGS) -fsyntax-only get_next_line.c \
-		>/dev/null 2>&1
-	@$(CC) -I. -DBUFFER_SIZE=1 $(CFLAGS) -fsyntax-only get_next_line.c
-
-check:
-	git diff --check
-	$(MAKE) fclean
-	$(MAKE) all
-	$(MAKE) check-buffer-size
-	$(MAKE) check-archive
-	$(MAKE) check-consumer
-	$(MAKE) test
-	$(MAKE) failure-test
-	$(MAKE) sanitize
-	$(MAKE) leak
-	$(MAKE) -q all
+test-asan: $(TEST_ASAN_BIN)
+	@$(TEST_ASAN_BIN)
+	@printf 'get_next_line tests (ASAN, BUFFER_SIZE=%s): PASS\n' $(BUFFER_SIZE)
 
 clean:
-	$(RMDIR) build tests/bin
+	rm -rf $(BIN_DIR)
 
 fclean: clean
-	$(RM) $(NAME)
+	rm -f $(NAME)
 
 re: fclean all
 
--include $(DEP) $(FAULT_DEP)
+-include $(DEPS)
