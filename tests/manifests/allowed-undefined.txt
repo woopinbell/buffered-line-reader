@@ -1,3 +1,4 @@
+errno_accessor
 free
 malloc
 read

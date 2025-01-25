@@ -18,7 +18,9 @@ nm -g "$archive" |
 
 nm -g "$archive" |
 	awk 'NF == 2 && $1 == "U" {print $2}' |
-	sed 's/^_//' |
+	sed -e 's/^___error$/errno_accessor/' \
+		-e 's/^__errno_location$/errno_accessor/' \
+		-e 's/^_//' |
 	LC_ALL=C sort -u >"$temporary_dir/allowed-undefined.txt"
 
 diff -u "$manifest_dir/archive-members.txt" \

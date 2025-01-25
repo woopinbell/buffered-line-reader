@@ -15,7 +15,8 @@ typedef enum e_blr_result
 {
 	BLR_ERROR = -1,
 	BLR_EOF = 0,
-	BLR_LINE = 1
+	BLR_LINE = 1,
+	BLR_AGAIN = 2
 }	t_blr_result;
 
 /*
@@ -28,8 +29,9 @@ typedef enum e_blr_result
  * 같은 번호로 다시 열었다면 기존 컨텍스트를 재사용하지 않아야 합니다.
  *
  * BLR_LINE이면 *line은 호출자가 free해야 합니다. 나머지 결과에서는
- * *line을 NULL로 설정합니다. BLR_ERROR 뒤에도 reset하거나 destroy할 수
- * 있습니다.
+ * *line을 NULL로 설정합니다. 읽기 오류나 할당 실패가 나도 누적 입력은
+ * 유지되므로 BLR_ERROR 뒤 같은 컨텍스트로 재시도하거나 reset 또는
+ * destroy할 수 있습니다. BLR_AGAIN은 입력이 준비된 뒤 다시 호출합니다.
  */
 t_blr_reader	*blr_reader_create(int fd);
 t_blr_result	blr_reader_next(t_blr_reader *reader, char **line);

@@ -1,5 +1,6 @@
 #include "get_next_line.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -16,6 +17,16 @@ struct s_blr_reader
 };
 
 static t_blr_reader	*g_readers;
+
+static ssize_t	read_retrying(int fd, void *buffer, size_t count)
+{
+	ssize_t	read_size;
+
+	read_size = read(fd, buffer, count);
+	while (read_size < 0 && errno == EINTR)
+		read_size = read(fd, buffer, count);
+	return (read_size);
+}
 
 static void	copy_bytes(char *destination, const char *source, size_t length)
 {
@@ -44,7 +55,7 @@ t_blr_reader	*blr_reader_create(int fd)
 	char			probe;
 	t_blr_reader	*reader;
 
-	if (fd < 0 || read(fd, &probe, 0) < 0)
+	if (fd < 0 || read_retrying(fd, &probe, 0) < 0)
 		return (NULL);
 	reader = malloc(sizeof(*reader));
 	if (reader == NULL)
@@ -213,7 +224,7 @@ t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
 		*line = NULL;
 	if (reader == NULL || line == NULL)
 		return (BLR_ERROR);
-	if (read(reader->fd, &probe, 0) < 0)
+	if (read_retrying(reader->fd, &probe, 0) < 0)
 		return (BLR_ERROR);
 	line_end = find_line_end(reader);
 	if (line_end != 0)
@@ -236,7 +247,7 @@ t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
 	{
 		if (!reserve_bytes(reader, (size_t)BUFFER_SIZE))
 			return (BLR_ERROR);
-		read_size = read(reader->fd, reader->bytes + reader->end,
+		read_size = read_retrying(reader->fd, reader->bytes + reader->end,
 				(size_t)BUFFER_SIZE);
 		if (read_size <= 0)
 			break ;
@@ -252,7 +263,11 @@ t_blr_result	blr_reader_next(t_blr_reader *reader, char **line)
 		}
 	}
 	if (read_size < 0)
+	{
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return (BLR_AGAIN);
 		return (BLR_ERROR);
+	}
 	reader->reached_eof = 1;
 	if (unread_length(reader) == 0)
 		return (BLR_EOF);
@@ -276,6 +291,7 @@ char	*get_next_line(int fd)
 	result = blr_reader_next(reader, &line);
 	if (result == BLR_LINE)
 		return (line);
-	discard_legacy_reader(reader);
+	if (result != BLR_AGAIN)
+		discard_legacy_reader(reader);
 	return (NULL);
 }
